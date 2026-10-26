@@ -11,7 +11,7 @@
   "dependencies": {
     "@pipecat-ai/client-js": "1.14.0",
     "@pipecat-ai/websocket-transport": "1.8.0",
-    "lucide-react": "^0.468.0",
+    "lucide-react": "^1.61.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
