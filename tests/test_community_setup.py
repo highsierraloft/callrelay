@@ -122,6 +122,15 @@ def test_public_scan_reports_categories_without_printing_values(tmp_path):
     assert any("personal Mac path" in line for line in findings)
 
 
+def test_private_key_files_are_rejected_even_without_a_recognizable_token_prefix(tmp_path):
+    name = "inworld-api-key"
+    private_value = "a-synthetic-value-without-a-provider-prefix"
+    (tmp_path / name).write_text(private_value)
+    findings = inspect(tmp_path, [name])
+    assert len(findings) == 1 and "operator credential" in findings[0]
+    assert private_value not in findings[0]
+
+
 def test_public_docker_context_includes_synthetic_audio_but_excludes_operator_material():
     from tests.test_container_security import _dockerignore_excludes
 

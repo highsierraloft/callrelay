@@ -1,23 +1,24 @@
+# Version-update PRs are opt-in. CI audits and GitHub security alerts remain enabled.
 version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/dashboard"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
 
   - package-ecosystem: "gradle"
     directory: "/phone"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
 
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels:
       - "type/tech-debt"
       - "area/ci"
@@ -29,7 +30,7 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels:
       - "type/tech-debt"
       - "area/ci"

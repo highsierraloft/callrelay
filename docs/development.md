@@ -75,3 +75,5 @@ The inherited live-phone harness is an advanced Twilio test tool, not the commun
 Keep lock files in Git. Change one dependency group at a time and run its relevant checks.
 Do not remove a lock file to fix a local runtime version problem.
 Keep docs, examples, API types, and deployment templates aligned with behavior changes.
+
+Version-update pull requests are opt-in for the initial release. CI dependency audits and GitHub security alerts remain enabled.

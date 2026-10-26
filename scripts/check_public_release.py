@@ -48,6 +48,17 @@ TEXT_RULES = {
     "private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
 }
 
+FORBIDDEN_NAMES = {
+    "adbkey",
+    "adbkey.pub",
+    "device.json",
+    "control-access.json",
+    "agent-call.json",
+    "worker-asterisk.json",
+    "mcp-client.json",
+    "codex-phone-client.json",
+}
+
 
 def inspect(root: Path, paths: list[str]) -> list[str]:
     findings = []
@@ -64,6 +75,9 @@ def inspect(root: Path, paths: list[str]) -> list[str]:
             continue
         if relative.name.startswith(".env") and relative.name != ".env.example":
             findings.append(f"{name}: environment values")
+        if relative.name in FORBIDDEN_NAMES or relative.name.endswith("-api-key"):
+            findings.append(f"{name}: operator credential or device settings")
+            continue
         path = root / relative
         if path.is_symlink():
             findings.append(f"{name}: symlink needs review")
