@@ -423,7 +423,9 @@ test("voice practice connects with local audio and releases its microphone", asy
   await page
     .getByRole("button", { name: "Start Voice Practice", exact: true })
     .click();
-  await expect.poll(() => connected).toBe(true);
+  // Cold WebKit audio-worklet setup can exceed the default five-second assertion
+  // budget. Keep this below the application's existing 20-second connection limit.
+  await expect.poll(() => connected, { timeout: 15000 }).toBe(true);
   await expect(
     page.getByRole("button", { name: "End Practice", exact: true }),
   ).toBeEnabled();
