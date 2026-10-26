@@ -1,0 +1,20 @@
+FROM node:24-alpine AS build
+WORKDIR /ui
+COPY dashboard/package.json dashboard/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY dashboard ./
+RUN npm run build
+
+FROM caddy:2-alpine
+ARG CALLRELAY_UID=1000
+ARG CALLRELAY_GID=1000
+RUN apk add --no-cache jq \
+    && apk add --no-cache --virtual .cap-tools libcap \
+    && setcap -r /usr/bin/caddy \
+    && apk del .cap-tools
+COPY --from=build /ui/dist /srv/dashboard
+COPY deploy/control/Caddyfile /etc/caddy/Caddyfile
+COPY deploy/control/entrypoint.sh /usr/local/bin/control-entrypoint
+RUN chmod 0555 /usr/local/bin/control-entrypoint
+USER ${CALLRELAY_UID}:${CALLRELAY_GID}
+ENTRYPOINT ["/usr/local/bin/control-entrypoint"]

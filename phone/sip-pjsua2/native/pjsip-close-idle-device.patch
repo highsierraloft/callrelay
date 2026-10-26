@@ -1,0 +1,18 @@
+# CallRelay changes, 2026-10-26: selected-SIM gateway and community packaging. See UPSTREAM.md.
+https://github.com/pjsip/pjproject/pull/5336
+--- a/pjsip/src/pjsua-lib/pjsua_aud.c
++++ b/pjsip/src/pjsua-lib/pjsua_aud.c
+@@ -2434,6 +2434,12 @@
+     pjsua_var.no_snd = PJ_FALSE;
+     pjsua_var.snd_is_on = PJ_TRUE;
+-
++
++    /* Explicit opening must also arm idle auto-close.
++     * Before startup, the audio subsystem will perform this check.
++     */
++    if (pjsua_get_state() == PJSUA_STATE_RUNNING)
++        pjsua_check_snd_dev_idle();
++
+     PJSUA_UNLOCK();
+     pj_log_pop_indent();
+     return PJ_SUCCESS;

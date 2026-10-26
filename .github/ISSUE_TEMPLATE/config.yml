@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/highsierraloft/callrelay/security/advisories/new
+    about: Report privately. Do not include a live credential.
+  - name: Installation guide
+    url: https://github.com/highsierraloft/callrelay/blob/main/docs/self-hosting.md
+    about: Setup, private access, and handset acceptance.

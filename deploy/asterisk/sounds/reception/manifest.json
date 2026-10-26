@@ -1,0 +1,56 @@
+{
+  "generator": "eSpeak NG",
+  "source": "app/reception_audio.py",
+  "purpose": "Synthetic service prompts, not call recordings",
+  "format": "mono PCM16 WAV at 8000 Hz",
+  "files": {
+    "reception-failure-en.wav": {
+      "text": "Sorry, our connection has failed. Please call again later. Goodbye.",
+      "language": "en",
+      "seconds": 4.715,
+      "sha256": "01faab481f0fabb4cdd2d3f0720bee08407940bb93a58d771b4decc86adda993"
+    },
+    "reception-failure-es.wav": {
+      "text": "Lo siento, hemos perdido la conexión. Por favor, vuelva a llamar más tarde. Adiós.",
+      "language": "es",
+      "seconds": 6.008,
+      "sha256": "53176b3b1b20a5b2d5eb7484e9274c00e3d238cdde9b0cbef390a8075b40d7e6"
+    },
+    "reception-failure-ru.wav": {
+      "text": "Извините, возникла проблема со связью. Пожалуйста, перезвоните позже. До свидания.",
+      "language": "ru",
+      "seconds": 5.564,
+      "sha256": "529f70f828f3d33a1ff46f46a6f99cae023cfa1e20e481de5140b78d1823e035"
+    },
+    "reception-failure-uk.wav": {
+      "text": "Вибачте, виникла проблема зі зв'язком. Будь ласка, зателефонуйте пізніше. До побачення.",
+      "language": "uk",
+      "seconds": 8.841,
+      "sha256": "3d71ea3320f0bb7f9a9507d187604c1094fbf52167a8ff9e26d0cee0c5fa8fd2"
+    },
+    "reception-silence-en.wav": {
+      "text": "I can't hear you. Please call again when you're ready. Goodbye.",
+      "language": "en",
+      "seconds": 4.021,
+      "sha256": "644e68ffaf53345308c305460005f87cfb783d3ceaeac1a5df7d24b0fa325e07"
+    },
+    "reception-silence-es.wav": {
+      "text": "No le puedo oír. Por favor, vuelva a llamar cuando pueda. Adiós.",
+      "language": "es",
+      "seconds": 4.749,
+      "sha256": "c787d748bffca9d1869055b1b02dcc410d40c9a9e342e330852bd81b6ced2cbc"
+    },
+    "reception-silence-ru.wav": {
+      "text": "Я вас не слышу. Пожалуйста, перезвоните, когда будете готовы. До свидания.",
+      "language": "ru",
+      "seconds": 4.935,
+      "sha256": "7b0a48146c5dd6c3a790e08ab0a3d859d7c7e53cf94d010f75b433932622de14"
+    },
+    "reception-silence-uk.wav": {
+      "text": "Я вас не чую. Будь ласка, зателефонуйте, коли будете готові. До побачення.",
+      "language": "uk",
+      "seconds": 7.657,
+      "sha256": "7fa2722f0a803bbd102c9b1669f6af5c1f68184a5b7825e84036a9a305c87d9b"
+    }
+  }
+}

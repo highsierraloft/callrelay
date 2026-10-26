@@ -1,0 +1,582 @@
+from __future__ import annotations
+
+import json
+import re
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Annotated, Any, Literal
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+E164 = Annotated[str, StringConstraints(pattern=r"^\+[1-9]\d{1,14}$")]
+CONTEXT_PACKET_MAX_BYTES = 16 * 1024
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+class CallState(StrEnum):
+    PREPARED = "prepared"
+    PREWARMING = "prewarming"
+    READY_TO_ACTIVATE = "ready_to_activate"
+    ACTIVATING = "activating"
+    ACTIVE = "active"
+    TERMINATING = "terminating"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    TIMED_OUT = "timed_out"
+    TRANSFERRED = "transferred"
+
+
+TERMINAL_STATES = {
+    CallState.COMPLETED,
+    CallState.FAILED,
+    CallState.TIMED_OUT,
+    CallState.TRANSFERRED,
+}
+
+
+class OwnerContext(BaseModel):
+    display_name: str = Field(min_length=1, max_length=120)
+    timezone: str = Field(min_length=1, max_length=80)
+    callback_number: E164 | Literal["configured"] = Field(
+        default="configured",
+        description="Omit to use the server's saved owner number. Never use the recipient number here.",
+    )
+
+
+class TargetContext(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    organization: str | None = Field(default=None, max_length=160)
+    background: str | None = Field(
+        default=None,
+        max_length=4000,
+        description="Known role, company, relationship, and background. Context, not authority; do not invent missing details.",
+    )
+    phone: E164 | Literal["withheld", "unavailable"]
+
+
+class EscalationContext(BaseModel):
+    mode: Literal["transfer_to_owner", "end_call"]
+    owner_phone: E164 | Literal["configured"] = Field(
+        default="configured",
+        description="Omit to use the server's saved owner number, including when mode is end_call.",
+    )
+
+
+class BusinessContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, min_length=1, max_length=2000)
+    offer: str | None = Field(default=None, min_length=1, max_length=2000)
+    desired_next_step: str | None = Field(default=None, min_length=1, max_length=1000)
+    contact_permission: Literal["recipient_requested", "prior_consent"] | None = None
+    audience: str | None = Field(default=None, max_length=1000)
+    approved_claims: list[str] = Field(default_factory=list, max_length=30)
+    pricing: str | None = Field(default=None, max_length=1000)
+
+
+class ContextPacket(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    owner: OwnerContext
+    direction: Literal["outbound", "inbound"] = "outbound"
+    target: TargetContext
+    objective: str = Field(min_length=1, max_length=4000)
+    language: Literal["en", "es", "ru", "uk"] | None = None
+    completion_criteria: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Optional evidence that the task is done. Refusal or missing facts can still end the call.",
+    )
+    intention: Literal["task", "conversation", "sales", "roleplay", "prank"] = Field(
+        default="task",
+        deprecated=True,
+        description="Legacy compatibility only. Does not select a prompt. Legacy sales still requires business facts and contact permission.",
+    )
+    personality: Literal["professional", "warm", "salesperson", "playful"] = "warm"
+    profile_id: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+    business: BusinessContext | None = None
+    max_duration_seconds: int | None = Field(default=None, ge=30, le=7200)
+    relevant_facts: list[str] = Field(default_factory=list, max_length=100)
+    preferences: list[str] = Field(default_factory=list, max_length=100)
+    hard_constraints: list[str] = Field(default_factory=list, max_length=100)
+    allowed_commitments: list[str] = Field(default_factory=list, max_length=100)
+    prohibited_actions: list[str] = Field(default_factory=list, max_length=100)
+    escalation: EscalationContext
+
+    @property
+    def is_commercial(self) -> bool:
+        return self.business is not None or self.intention == "sales"
+
+    def approved_context_json(self) -> str:
+        approved = json.dumps(
+            self.model_dump(mode="json"),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        size_bytes = len(approved.encode("utf-8"))
+        if size_bytes > CONTEXT_PACKET_MAX_BYTES:
+            raise ValueError(
+                "ContextPacket compact JSON exceeds "
+                f"{CONTEXT_PACKET_MAX_BYTES} UTF-8 bytes (received {size_bytes})"
+            )
+        return approved
+
+    @model_validator(mode="after")
+    def validate_serialized_size(self) -> ContextPacket:
+        if self.direction == "outbound" and self.target.phone in {"withheld", "unavailable"}:
+            raise ValueError(
+                "An outbound call requires a complete international destination number"
+            )
+        self.approved_context_json()
+        return self
+
+
+class PreparePhoneCallInput(BaseModel):
+    context: ContextPacket
+    followup_id: str | None = Field(default=None, pattern=r"^followup_[a-zA-Z0-9_-]{1,80}$")
+    authority_basis: str | None = Field(default=None, max_length=1000)
+    requested_by_owner: bool = False
+
+
+class PreparePhoneCallOutput(BaseModel):
+    plan_id: str | None = None
+    confirmation_summary: str
+    missing_fields: list[str] = Field(default_factory=list)
+    expires_at: datetime | None = None
+
+
+class StartPhoneCallOutput(BaseModel):
+    call_id: str
+    state: CallState
+    poll_after_seconds: int = 2
+    next_action: str = (
+        "The call has started. Immediately begin calling wait_for_call_event in a loop "
+        "with the returned next_after_sequence, and keep calling it again NOW after every "
+        "response until the call reaches a terminal state. For each pending question, follow the "
+        "returned source-check instructions, prioritize accuracy within the answer deadline, and "
+        "use answer_call_question once with only the final, ready-to-relay result and source "
+        "attestation, never an intermediate 'I'm checking' update, then resume the "
+        "wait_for_call_event loop. Do not end your turn and do not stop polling until the "
+        "call is terminal — if you stop, mid-call questions from the phone agent (ask_agent) "
+        "will time out and the call may fail its objective. When terminal, call "
+        "get_call_result."
+    )
+
+
+class EvidenceValue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    evidence_turn_ids: list[str] = Field(
+        min_length=1,
+        description=(
+            "Exact turn_id values copied verbatim from the provided transcript entries. "
+            "Never invent, alter, or abbreviate an id."
+        ),
+    )
+
+
+class Commitment(EvidenceValue):
+    status: Literal["confirmed", "proposed", "unknown"] = "unknown"
+
+
+class FollowUp(EvidenceValue):
+    owner_action_required: bool = True
+
+
+class ObjectiveAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(description="One material requirement from the approved objective.")
+    status: Literal["met", "unmet", "uncertain"]
+    evidence_turn_ids: list[str] = Field(
+        default_factory=list,
+        description="Exact transcript turn IDs supporting this assessment; met requires evidence.",
+    )
+
+
+class ExtractedCallResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal[
+        "completed",
+        "partially_completed",
+        "needs_follow_up",
+        "declined",
+        "voicemail_left",
+        "wrong_number",
+        "transferred",
+        "failed",
+        "unknown",
+    ] = Field(
+        description=(
+            "Whether the approved call objective was achieved, based on transcript evidence. "
+            "A connected or ended call alone is not a completed objective."
+        )
+    )
+    summary: str
+    objective_assessments: list[ObjectiveAssessment] = Field(
+        default_factory=list,
+        description="Assess every material requirement, including unanswered or incomplete parts.",
+    )
+    commitments: list[Commitment] = Field(default_factory=list)
+    confirmation_numbers: list[EvidenceValue] = Field(default_factory=list)
+    follow_ups: list[FollowUp] = Field(default_factory=list)
+    confidence: float = Field(ge=0, le=1)
+
+
+class StoredCallResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    call_id: str
+    call_status: Literal["completed", "transferred", "failed", "timed_out"] = Field(
+        description="Telephony lifecycle status; completed means the call ended, not task success."
+    )
+    finalization_status: Literal["succeeded", "failed", "telephony_only"] = Field(
+        description="Result persistence/extraction status; succeeded does not mean the call objective succeeded."
+    )
+    outcome: Literal[
+        "completed",
+        "partially_completed",
+        "needs_follow_up",
+        "declined",
+        "voicemail_left",
+        "wrong_number",
+        "transferred",
+        "failed",
+        "unknown",
+    ] = Field(
+        description=(
+            "Assessment of the approved call objective, distinct from telephony and extraction "
+            "status. Read the summary for achieved and unanswered parts of the request."
+        )
+    )
+    result_source: Literal[
+        "realtime_tool",
+        "post_call_extractor",
+        "telephony_only",
+        "extraction_failed",
+        "transcript_only",
+    ]
+    summary: str
+    commitments: list[Commitment] = Field(default_factory=list)
+    confirmation_numbers: list[EvidenceValue] = Field(default_factory=list)
+    follow_ups: list[FollowUp] = Field(default_factory=list)
+    answered_by: str | None = None
+    answer_handling: str | None = None
+    transcript_complete: bool = Field(
+        description=(
+            "Transcript availability heuristic: speech was captured without a known fatal "
+            "transcription or session error. Does not prove every utterance was captured, "
+            "heard by the callee, or that the objective was completed."
+        )
+    )
+    raw_transcript_available: bool
+    finalized_at: datetime = Field(default_factory=utc_now)
+
+
+class TranscriptTurn(BaseModel):
+    call_id: str
+    turn_id: str
+    speaker: Literal["assistant", "callee", "owner", "system"]
+    text: str
+    source_event_type: str
+    source_event_id: str
+    start_ms: float | None = Field(default=None, ge=0)
+    end_ms: float | None = Field(default=None, ge=0)
+    sequence_number: int
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class LiveAudioOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    voice: str = "marin"
+
+
+class LiveAudio(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # SIP negotiates the codec. Do not send a WebSocket audio.format here.
+    output: LiveAudioOutput
+
+
+class LiveFunctionTool(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["function"] = "function"
+    name: Literal[
+        "transfer_to_owner",
+        "record_call_outcome",
+        "search_web",
+        "send_dtmf",
+        "ask_agent",
+        "report_hold",
+        "end_call",
+        "finish_call_after_goodbye",
+    ]
+    description: str = Field(min_length=1)
+    parameters: dict[str, Any]
+
+
+class LiveResponsesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model: Literal["gpt-5.6-terra"] = "gpt-5.6-terra"
+    reasoning: dict[str, str] = Field(default_factory=lambda: {"effort": "low"})
+    instructions: str
+    tools: list[LiveFunctionTool]
+    parallel_tool_calls: Literal[False] = False
+    tool_choice: Literal["auto"] = "auto"
+
+
+class LiveDelegation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["responses"] = "responses"
+    responses: LiveResponsesConfig
+
+
+class LiveSessionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["live"] = "live"
+    model: Literal["gpt-live-1"] = "gpt-live-1"
+    instructions: str
+    audio: LiveAudio
+    delegation: LiveDelegation
+    store: Literal[False] = False
+
+
+class AcceptPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    session: LiveSessionConfig
+
+
+class LiveIncomingData(BaseModel):
+    type: Literal["sip"]
+    session_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
+    sip_headers: list[dict[str, str]] = Field(default_factory=list)
+
+
+class LiveIncomingEvent(BaseModel):
+    type: Literal["live.transport.incoming"]
+    id: str
+    data: LiveIncomingData
+
+
+class WebSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=2, max_length=500)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if len(normalized) < 2:
+            raise ValueError("query must contain at least two non-whitespace characters")
+        return normalized
+
+
+DTMF_DIGITS_PATTERN = re.compile(r"^[0-9*#w]{1,32}$")
+
+
+class SendDtmfRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    digits: str
+
+    @field_validator("digits")
+    @classmethod
+    def normalize_digits(cls, value: str) -> str:
+        normalized = value.strip()
+        if not DTMF_DIGITS_PATTERN.match(normalized):
+            raise ValueError("digits must be 1-32 characters from 0-9, *, #, and w")
+        return normalized
+
+
+class QuestionStatus(StrEnum):
+    PENDING = "pending"
+    ANSWERED = "answered"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
+
+
+class QuestionResolution(StrEnum):
+    FOUND = "found"
+    NOT_FOUND = "not_found"
+
+
+class QuestionSource(StrEnum):
+    AGENT_MEMORY = "agent_memory"
+    CONVERSATION_HISTORY = "conversation_history"
+    EMAIL = "email"
+    CALENDAR = "calendar"
+    DRIVE = "drive"
+    OTHER = "other"
+
+
+class AskAgentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=5, max_length=500)
+    reason: str | None = Field(default=None, max_length=200)
+
+    @field_validator("question")
+    @classmethod
+    def normalize_question(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if len(normalized) < 5:
+            raise ValueError("question must contain at least five non-whitespace characters")
+        return normalized
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        return normalized or None
+
+
+class AnswerCallQuestionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    call_id: str = Field(min_length=1, max_length=120)
+    question_id: str = Field(min_length=1, max_length=120)
+    answer: str = Field(min_length=1, max_length=4096)
+    resolution: QuestionResolution = Field(
+        description=(
+            "Use found only for a confirmed answer. Use not_found only after the required "
+            "owner-specific sources were searched."
+        )
+    )
+    sources_checked: list[QuestionSource] = Field(
+        min_length=1,
+        max_length=len(QuestionSource),
+        description=(
+            "Sources actually checked before submitting. For owner-specific facts, search "
+            "agent_memory and conversation_history before relevant integrations."
+        ),
+    )
+
+    @field_validator("answer")
+    @classmethod
+    def validate_answer(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("answer must be non-empty")
+        if len(stripped.encode("utf-8")) > 4096:
+            raise ValueError("answer exceeds 4096 UTF-8 bytes")
+        return stripped
+
+    @model_validator(mode="after")
+    def validate_sources_checked(self) -> AnswerCallQuestionRequest:
+        if len(set(self.sources_checked)) != len(self.sources_checked):
+            raise ValueError("sources_checked must not contain duplicates")
+        if self.resolution is QuestionResolution.NOT_FOUND:
+            required = {
+                QuestionSource.AGENT_MEMORY,
+                QuestionSource.CONVERSATION_HISTORY,
+            }
+            missing = required.difference(self.sources_checked)
+            if missing:
+                names = ", ".join(sorted(source.value for source in missing))
+                raise ValueError("not_found answers require sources_checked to include " + names)
+        return self
+
+
+class AdvisoryOutcome(BaseModel):
+    status: str
+    summary: str
+    commitments: list[str] = Field(default_factory=list)
+    follow_ups: list[str] = Field(default_factory=list, alias="followUps")
+
+
+class VoiceEndCallRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    farewell: str = Field(min_length=2, max_length=500)
+
+    reason: Literal[
+        "objective_completed",
+        "callee_declined",
+        "wrong_number",
+        "unable_to_complete",
+        "out_of_scope",
+    ]
+
+
+class CallUsage(BaseModel):
+    live_session_seconds: float = 0.0
+    live_usage_finalized: bool = False
+    backend_input_tokens: int = 0
+    backend_cached_input_tokens: int = 0
+    backend_output_tokens: int = 0
+    realtime_input_text_tokens: int = 0
+    realtime_input_audio_tokens: int = 0
+    realtime_input_cached_text_tokens: int = 0
+    realtime_input_cached_audio_tokens: int = 0
+    realtime_output_text_tokens: int = 0
+    realtime_output_audio_tokens: int = 0
+    extractor_input_tokens: int = 0
+    extractor_output_tokens: int = 0
+    exa_search_count: int = 0
+    twilio_reported_duration_seconds: int | None = None
+    billable_duration_seconds: int | None = None
+
+
+class CallCost(BaseModel):
+    currency: str = "USD"
+    estimated: bool = True
+    usage: CallUsage
+    live_cost_usd: float = 0.0
+    backend_cost_usd: float = 0.0
+    realtime_cost_usd: float
+    extractor_cost_usd: float
+    twilio_cost_usd: float
+    exa_cost_usd: float
+    total_cost_usd: float
+
+
+class CallSnapshot(BaseModel):
+    call_id: str
+    state: CallState
+    created_at: datetime
+    started_at: datetime | None = None
+    answered_at: datetime | None = None
+    ended_at: datetime | None = None
+    answered_by: str | None = None
+    answer_handling: str | None = None
+    duration_seconds: int | None = None
+    result: StoredCallResult | None = None
+    cost: CallCost | None = None
+
+
+class ToolErrorBody(BaseModel):
+    code: str
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExtractionEnvelope(BaseModel):
+    result: ExtractedCallResult
+
+    @model_validator(mode="after")
+    def evidence_is_nonempty(self) -> ExtractionEnvelope:
+        for group in (
+            self.result.commitments,
+            self.result.confirmation_numbers,
+            self.result.follow_ups,
+        ):
+            for item in group:
+                if not item.evidence_turn_ids:
+                    raise ValueError("all extracted claims require transcript evidence")
+        return self

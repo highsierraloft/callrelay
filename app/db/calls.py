@@ -1,0 +1,385 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.db.protocols import DatabaseAccess
+
+import math
+from collections.abc import Iterable
+from typing import Any
+
+from app.db.engine import _iso_now
+from app.models import TERMINAL_STATES, CallState
+from app.records import LifecycleRecord
+
+# Schema columns of `calls` that current callers actually pass to update_call(). Anything
+# outside this set is rejected up front instead of failing later as a SQL error.
+_UPDATE_CALL_ALLOWED_COLUMNS = frozenset(
+    {
+        "state",
+        "conference_sid",
+        "twilio_ai_call_sid",
+        "twilio_callee_call_sid",
+        "twilio_owner_call_sid",
+        "openai_call_id",
+        "openai_accept_status",
+        "transcription_verified",
+        "semantic_vad_verified",
+        "live_session_verified",
+        "media_stream_sid",
+        "callee_dialed",
+        "sideband_open",
+        "callee_joined",
+        "opening_sent",
+        "voicemail_sent",
+        "termination_claimed",
+        "termination_reason",
+        "transfer_outcome",
+        "advisory_outcome_json",
+        "interruption_observed",
+        "answered_at",
+        "last_event_at",
+        "twilio_reported_duration_seconds",
+    }
+)
+
+
+class CallsMixin:
+    async def record_live_usage(
+        self: DatabaseAccess, call_id: str, *, seconds: float, finalized: bool
+    ) -> None:
+        seconds = float(seconds)
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError("invalid Live duration")
+        # Updates are cumulative snapshots, not increments. A late provisional
+        # event must never change a finalized value or clear finalization.
+        await self.execute(
+            """UPDATE calls SET live_session_seconds=MAX(live_session_seconds, ?),
+               live_usage_finalized=MAX(live_usage_finalized, ?)
+               WHERE call_id=? AND live_usage_finalized=0""",
+            (seconds, int(finalized), call_id),
+        )
+
+    async def record_backend_usage(
+        self: DatabaseAccess,
+        call_id: str,
+        *,
+        response_id: str,
+        input_tokens: int,
+        cached_input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        if (
+            min(input_tokens, cached_input_tokens, output_tokens) < 0
+            or cached_input_tokens > input_tokens
+        ):
+            raise ValueError("invalid delegated token usage")
+        async with self._immediate_transaction() as conn:
+            cursor = await conn.execute(
+                "INSERT OR IGNORE INTO live_backend_usage(call_id, response_id) VALUES (?, ?)",
+                (call_id, response_id),
+            )
+            if cursor.rowcount:
+                await conn.execute(
+                    """UPDATE calls SET backend_input_tokens=backend_input_tokens+?,
+                       backend_cached_input_tokens=backend_cached_input_tokens+?,
+                       backend_output_tokens=backend_output_tokens+? WHERE call_id=?""",
+                    (input_tokens, cached_input_tokens, output_tokens, call_id),
+                )
+
+    async def get_call(self: DatabaseAccess, call_id: str) -> dict[str, Any] | None:
+        return await self.fetch_one("SELECT * FROM calls WHERE call_id=?", (call_id,))
+
+    async def get_lifecycle_record(self: DatabaseAccess, call_id: str) -> LifecycleRecord | None:
+        """Typed adapter over the same read used by :meth:`get_call`."""
+
+        row = await self.get_call(call_id)
+        return LifecycleRecord.from_row(row) if row is not None else None
+
+    async def get_call_by_openai_id(
+        self: DatabaseAccess, openai_call_id: str
+    ) -> dict[str, Any] | None:
+        return await self.fetch_one("SELECT * FROM calls WHERE openai_call_id=?", (openai_call_id,))
+
+    async def get_call_by_twilio_sid(self: DatabaseAccess, sid: str) -> dict[str, Any] | None:
+        return await self.fetch_one(
+            """SELECT * FROM calls
+               WHERE twilio_ai_call_sid=? OR twilio_callee_call_sid=?""",
+            (sid, sid),
+        )
+
+    async def list_calls(self: DatabaseAccess, limit: int = 100) -> list[dict[str, Any]]:
+        return await self.fetch_all(
+            "SELECT * FROM calls ORDER BY created_at DESC LIMIT ?", (limit,)
+        )
+
+    async def list_nonterminal_calls(self: DatabaseAccess) -> list[dict[str, Any]]:
+        placeholders, params = self._in_clause(state.value for state in TERMINAL_STATES)
+        return await self.fetch_all(
+            f"SELECT * FROM calls WHERE state NOT IN ({placeholders})",  # noqa: S608
+            params,
+        )
+
+    async def list_terminal_calls_needing_finalization(
+        self: DatabaseAccess,
+    ) -> list[dict[str, Any]]:
+        placeholders, params = self._in_clause(state.value for state in TERMINAL_STATES)
+        return await self.fetch_all(
+            f"""SELECT calls.* FROM calls
+                LEFT JOIN call_results ON call_results.call_id = calls.call_id
+                WHERE calls.state IN ({placeholders})
+                  AND (
+                    call_results.call_id IS NULL
+                    OR json_extract(call_results.result_json, '$.finalization_status') =
+                       'telephony_only'
+                  )""",  # noqa: S608
+            params,
+        )
+
+    async def set_conference_cleanup_pending(
+        self: DatabaseAccess, call_id: str, pending: bool
+    ) -> None:
+        await self.execute(
+            "UPDATE calls SET conference_cleanup_pending=? WHERE call_id=?",
+            (1 if pending else 0, call_id),
+        )
+
+    async def list_conference_cleanup_pending(self: DatabaseAccess) -> list[dict[str, Any]]:
+        return await self.fetch_all("SELECT * FROM calls WHERE conference_cleanup_pending=1")
+
+    async def touch_call(self: DatabaseAccess, call_id: str) -> None:
+        await self.execute(
+            "UPDATE calls SET last_event_at=? WHERE call_id=?", (_iso_now(), call_id)
+        )
+
+    async def touch_calls(self: DatabaseAccess, activity: Iterable[tuple[str, str]]) -> None:
+        """Persist latest observed activity for several calls in one durable transaction."""
+        placeholders, terminal_states = self._in_clause(
+            sorted(state.value for state in TERMINAL_STATES)
+        )
+        rows = [
+            (occurred_at, call_id, occurred_at, *terminal_states)
+            for call_id, occurred_at in activity
+        ]
+        if not rows:
+            return
+        async with self._immediate_transaction() as conn:
+            await conn.executemany(
+                f"""UPDATE calls SET last_event_at=?
+                    WHERE call_id=? AND last_event_at<?
+                      AND state NOT IN ({placeholders})""",  # noqa: S608
+                rows,
+            )
+
+    async def update_call(self: DatabaseAccess, call_id: str, **values: Any) -> bool:
+        if not values:
+            return True
+        unknown = values.keys() - _UPDATE_CALL_ALLOWED_COLUMNS
+        if unknown:
+            raise ValueError(f"invalid call column(s): {', '.join(sorted(unknown))}")
+        values["last_event_at"] = _iso_now()
+        columns = ", ".join(f"{key}=?" for key in values)
+        params = [
+            self._serialize_advisory_outcome(value) if key == "advisory_outcome_json" else value
+            for key, value in values.items()
+        ]
+        params.append(call_id)
+        return await self._execute_cas(f"UPDATE calls SET {columns} WHERE call_id=?", params)
+
+    async def bind_openai_call(
+        self: DatabaseAccess, *, call_id: str, plan_id: str, openai_call_id: str
+    ) -> bool:
+        """Atomically bind one expected prewarming call to one OpenAI SIP call."""
+        return await self._execute_cas(
+            """UPDATE calls SET openai_call_id=?, last_event_at=?
+               WHERE call_id=? AND plan_id=? AND state=? AND openai_call_id IS NULL""",
+            (openai_call_id, _iso_now(), call_id, plan_id, CallState.PREWARMING.value),
+        )
+
+    async def add_realtime_usage(
+        self: DatabaseAccess,
+        call_id: str,
+        *,
+        input_text_tokens: int,
+        input_audio_tokens: int,
+        input_cached_text_tokens: int,
+        input_cached_audio_tokens: int,
+        output_text_tokens: int,
+        output_audio_tokens: int,
+    ) -> None:
+        await self.execute(
+            """UPDATE calls
+               SET realtime_input_text_tokens = realtime_input_text_tokens + ?,
+                   realtime_input_audio_tokens = realtime_input_audio_tokens + ?,
+                   realtime_input_cached_text_tokens = realtime_input_cached_text_tokens + ?,
+                   realtime_input_cached_audio_tokens = realtime_input_cached_audio_tokens + ?,
+                   realtime_output_text_tokens = realtime_output_text_tokens + ?,
+                   realtime_output_audio_tokens = realtime_output_audio_tokens + ?
+               WHERE call_id = ?""",
+            (
+                input_text_tokens,
+                input_audio_tokens,
+                input_cached_text_tokens,
+                input_cached_audio_tokens,
+                output_text_tokens,
+                output_audio_tokens,
+                call_id,
+            ),
+        )
+
+    async def add_extractor_usage(
+        self: DatabaseAccess, call_id: str, *, input_tokens: int, output_tokens: int
+    ) -> None:
+        await self.execute(
+            """UPDATE calls
+               SET extractor_input_tokens = extractor_input_tokens + ?,
+                   extractor_output_tokens = extractor_output_tokens + ?
+               WHERE call_id = ?""",
+            (input_tokens, output_tokens, call_id),
+        )
+
+    async def record_exa_search(self: DatabaseAccess, call_id: str, *, cost_dollars: float) -> None:
+        await self.execute(
+            """UPDATE calls
+               SET exa_search_count = exa_search_count + 1,
+                   exa_cost_dollars = exa_cost_dollars + ?
+               WHERE call_id = ?""",
+            (cost_dollars, call_id),
+        )
+
+    async def _promote_call_state(
+        self: DatabaseAccess, call_id: str, expected: CallState, replacement: CallState
+    ) -> bool:
+        """Compare-and-set one lifecycle transition. Business callers use the named
+        ``promote_to_*`` wrappers so a state change reads as the decision it encodes."""
+
+        return await self._execute_cas(
+            """UPDATE calls SET state=?, last_event_at=?
+               WHERE call_id=? AND state=?""",
+            (replacement.value, _iso_now(), call_id, expected.value),
+        )
+
+    async def promote_to_ready_to_activate(self: DatabaseAccess, call_id: str) -> bool:
+        """PREWARMING -> READY_TO_ACTIVATE once the setup preconditions hold."""
+
+        return await self._promote_call_state(
+            call_id, CallState.PREWARMING, CallState.READY_TO_ACTIVATE
+        )
+
+    async def promote_to_activating(self: DatabaseAccess, call_id: str) -> bool:
+        """Claim the one-shot right to promote a ready call into ACTIVATING."""
+
+        return await self._promote_call_state(
+            call_id, CallState.READY_TO_ACTIVATE, CallState.ACTIVATING
+        )
+
+    async def promote_to_active(self: DatabaseAccess, call_id: str) -> bool:
+        """ACTIVATING -> ACTIVE once media monitoring is live."""
+
+        return await self._promote_call_state(call_id, CallState.ACTIVATING, CallState.ACTIVE)
+
+    async def adopt_participant(
+        self: DatabaseAccess,
+        call_id: str,
+        *,
+        kind: str,
+        call_sid: str,
+        conference_sid: str | None,
+    ) -> bool:
+        """Take ownership of a freshly created participant leg only while the call is open.
+
+        The state predicate is the linearization point against termination: if a
+        termination claim commits first, adoption fails and the caller compensates
+        instead of reporting a successful leg on a closed call. ``COALESCE`` keeps an
+        existing conference SID when the provider omits it.
+        """
+        if kind == "agent":
+            column = "twilio_ai_call_sid"
+        elif kind == "callee":
+            column = "twilio_callee_call_sid"
+        else:
+            raise ValueError(f"invalid participant kind: {kind}")
+        placeholders, terminal_params = self._in_clause(
+            sorted(state.value for state in TERMINAL_STATES)
+        )
+        return await self._execute_cas(
+            f"""UPDATE calls
+                SET {column}=?, conference_sid=COALESCE(?, conference_sid), last_event_at=?
+                WHERE call_id=? AND state NOT IN ({placeholders}) AND state != ?""",  # noqa: S608
+            (
+                call_sid,
+                conference_sid,
+                _iso_now(),
+                call_id,
+                *terminal_params,
+                CallState.TERMINATING.value,
+            ),
+        )
+
+    async def adopt_media_stream(self: DatabaseAccess, call_id: str, stream_sid: str) -> bool:
+        """Persist a carrier stream SID only while the call is still open."""
+        placeholders, terminal_params = self._in_clause(
+            sorted(state.value for state in TERMINAL_STATES)
+        )
+        return await self._execute_cas(
+            f"""UPDATE calls SET media_stream_sid=?, last_event_at=?
+                WHERE call_id=? AND state NOT IN ({placeholders}) AND state != ?""",  # noqa: S608
+            (stream_sid, _iso_now(), call_id, *terminal_params, CallState.TERMINATING.value),
+        )
+
+    async def claim_callee_dial(self: DatabaseAccess, call_id: str) -> bool:
+        """Atomically claim the one-shot right to dial the callee.
+
+        The claim carries its own lifecycle predicate instead of relying on a
+        separate read plus a generic flag toggle: a call that is already
+        terminating (or that lost ``termination_claimed=0``) can never acquire
+        the dial right after termination wins. Setup states are limited to the
+        pre-activation window where the callee leg is legitimately created.
+        """
+        return await self._execute_cas(
+            """UPDATE calls SET callee_dialed=1, last_event_at=?
+               WHERE call_id=? AND callee_dialed=0 AND termination_claimed=0
+                 AND state IN (?, ?)""",
+            (
+                _iso_now(),
+                call_id,
+                CallState.PREWARMING.value,
+                CallState.READY_TO_ACTIVATE.value,
+            ),
+        )
+
+    async def set_flag_once(self: DatabaseAccess, call_id: str, flag: str) -> bool:
+        allowed = {
+            "sideband_open",
+            "callee_joined",
+            "callee_dialed",
+            "opening_sent",
+            "voicemail_sent",
+            "termination_claimed",
+            "interruption_observed",
+        }
+        if flag not in allowed:
+            raise ValueError(f"invalid call flag: {flag}")
+        return await self._execute_cas(
+            f"UPDATE calls SET {flag}=1, last_event_at=? WHERE call_id=? AND {flag}=0",  # noqa: S608
+            (_iso_now(), call_id),
+        )
+
+    async def set_amd_once(
+        self: DatabaseAccess, call_id: str, answered_by: str, handling: str
+    ) -> bool:
+        return await self._execute_cas(
+            """UPDATE calls
+               SET amd_result=?, answered_by=?, answer_handling=?, last_event_at=?
+               WHERE call_id=? AND amd_result IS NULL""",
+            (answered_by, answered_by, handling, _iso_now(), call_id),
+        )
+
+    async def claim_opening_if_not_voicemail(self: DatabaseAccess, call_id: str) -> bool:
+        """Atomically claim the opening unless AMD has already classified voicemail."""
+        return await self._execute_cas(
+            """UPDATE calls SET opening_sent=1, last_event_at=?
+               WHERE call_id=? AND opening_sent=0 AND answer_handling IS NOT ?""",
+            (_iso_now(), call_id, "voicemail"),
+        )

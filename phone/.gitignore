@@ -1,0 +1,28 @@
+# Secrets — never commit
+sip_secret
+*.secret
+secrets/
+
+# Machine-specific agent notes (devices, PBX hosts)
+CLAUDE.local.md
+
+# Gradle / Android
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+captures/
+.externalNativeBuild/
+.cxx/
+
+# pjsua2 binding produced by sip-pjsua2/native/build-pjsua2.sh
+sip-pjsua2/src/generated/
+sip-pjsua2/src/.generated-stage.*/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+.kotlin/

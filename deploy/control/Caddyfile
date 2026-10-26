@@ -1,0 +1,46 @@
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:8080 {
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Permissions-Policy "microphone=(self), camera=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self' blob:; style-src 'self'; connect-src 'self' {$CONTROL_WS_ORIGIN}; img-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		Cache-Control "private, no-store"
+	}
+	route {
+		@health path /healthz
+		respond @health "ok" 200
+
+		@untrusted not remote_ip {$CONTROL_PROXY_IPS}
+		respond @untrusted "Use the private Tailscale dashboard address." 403
+
+		@notOwner not header Tailscale-User-Login {$CONTROL_OWNER_LOGIN}
+		respond @notOwner "Open this dashboard from the owner's personal Tailscale account." 403
+
+		handle /admin/api/* {
+			reverse_proxy agent-call:8000 {
+				header_up X-Control-Bridge {$CONTROL_BRIDGE_TOKEN}
+				header_up -Authorization
+				header_up -X-Agent-User-Id
+			}
+		}
+
+		@mcp path /mcp /mcp/*
+		handle @mcp {
+			reverse_proxy agent-call:8000 {
+				header_up -X-Control-Bridge
+			}
+		}
+		handle {
+			root * /srv/dashboard
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}

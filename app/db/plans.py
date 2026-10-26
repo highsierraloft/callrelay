@@ -1,0 +1,176 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.db.protocols import DatabaseAccess
+
+import json
+from dataclasses import dataclass
+from datetime import datetime
+from enum import StrEnum
+from typing import Any
+
+from app.db.deployment import DeploymentLockedError, _lock_is_active
+from app.db.engine import _iso_now
+from app.models import TERMINAL_STATES, CallState
+from app.records import PlanRecord
+
+
+class ClaimOutcome(StrEnum):
+    """Why a confirmed plan was or was not turned into a call.
+
+    ``busy``/``call_ending`` are distinct from ``plan_unavailable`` so callers can
+    return a stable error code instead of reporting an unconsumed plan as expired.
+    """
+
+    CLAIMED = "claimed"
+    PLAN_UNAVAILABLE = "plan_unavailable"
+    BUSY = "call_busy"
+    CALL_ENDING = "call_ending"
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimResult:
+    outcome: ClaimOutcome
+
+    @property
+    def claimed(self) -> bool:
+        return self.outcome is ClaimOutcome.CLAIMED
+
+    def __bool__(self) -> bool:
+        return self.claimed
+
+
+class PlansMixin:
+    async def create_plan(
+        self: DatabaseAccess,
+        plan_id: str,
+        context: dict[str, Any],
+        authority_basis: str | None,
+        expires_at: datetime,
+        configuration_snapshot: dict[str, Any] | None = None,
+    ) -> None:
+        now = _iso_now()
+        async with self._immediate_transaction() as conn:
+            await conn.execute(
+                "INSERT INTO plans (plan_id,state,context_json,authority_basis,created_at,expires_at) "
+                "VALUES (?,'prepared',?,?,?,?)",
+                (
+                    plan_id,
+                    json.dumps(
+                        {
+                            key: value
+                            for key, value in context.items()
+                            if key != "profile_id"
+                            and not (key == "direction" and value == "outbound")
+                        }
+                    ),
+                    authority_basis,
+                    now,
+                    expires_at.isoformat(),
+                ),
+            )
+            if configuration_snapshot is not None:
+                await conn.execute(
+                    "INSERT INTO plan_configurations VALUES (?,?)",
+                    (plan_id, json.dumps(configuration_snapshot, ensure_ascii=False)),
+                )
+                if configuration_snapshot.get("followup_id"):
+                    await conn.execute(
+                        "INSERT INTO call_followup_plans VALUES (?,?,?)",
+                        (configuration_snapshot["followup_id"], plan_id, now),
+                    )
+
+    async def get_plan(self: DatabaseAccess, plan_id: str) -> dict[str, Any] | None:
+        row = await self.fetch_one(
+            "SELECT p.*, c.snapshot_json FROM plans p LEFT JOIN plan_configurations c USING(plan_id) WHERE p.plan_id=?",
+            (plan_id,),
+        )
+        if row is not None:
+            snapshot = json.loads(row["snapshot_json"]) if row.get("snapshot_json") else {}
+            row["context"]["profile_id"] = snapshot.get("profile_id")
+        return row
+
+    async def get_plan_record(self: DatabaseAccess, plan_id: str) -> PlanRecord | None:
+        """Typed adapter over the same read used by :meth:`get_plan`."""
+
+        row = await self.get_plan(plan_id)
+        return PlanRecord.from_row(row) if row is not None else None
+
+    async def claim_plan_and_create_call(
+        self: DatabaseAccess,
+        *,
+        plan_id: str,
+        call_id: str,
+        conference_name: str,
+        confirmation_text: str,
+        enforce_single_call_capacity: bool = True,
+    ) -> ClaimResult:
+        """Atomically consume a plan and create its call, or explain why not.
+
+        Deployment-lock check, single-use plan consumption, single-live-call
+        capacity, and the ``calls`` INSERT all run in one ``BEGIN IMMEDIATE``
+        transaction. A rejected claim leaves the plan ``prepared`` (rollback), so a
+        transient ``busy``/``call_ending`` does not burn the confirmation.
+
+        Capacity is checked only when ``enforce_single_call_capacity`` is true; the
+        production entry point leaves it on, while multi-call historical fixtures
+        that seed stranded rows explicitly opt out. This claim is a local admission
+        decision, not a distributed exactly-once guarantee: a remote participant is
+        not created until the caller observes ``CLAIMED``.
+        """
+        now = _iso_now()
+        async with self._write_connection() as conn:
+            await conn.execute("BEGIN IMMEDIATE")
+            cursor = await conn.execute(
+                "SELECT locked, locked_at FROM deployment_control WHERE singleton=1"
+            )
+            lock = await cursor.fetchone()
+            if lock and lock["locked"]:
+                if _lock_is_active(lock["locked_at"]):
+                    await conn.rollback()
+                    raise DeploymentLockedError("deployment is in progress")
+                await conn.execute(
+                    "UPDATE deployment_control SET locked=0, locked_at=NULL WHERE singleton=1"
+                )
+            cursor = await conn.execute(
+                """UPDATE plans SET state='started', call_id=?, confirmation_text=?
+                   WHERE plan_id=? AND state='prepared' AND expires_at>?
+                   AND NOT EXISTS (SELECT 1 FROM call_followup_plans fp JOIN call_followups f
+                   USING(followup_id) WHERE fp.plan_id=plans.plan_id AND (f.status != 'ready' OR json_array_length(json_extract(f.value_json,'$.needed_information')) > 0))""",
+                (call_id, confirmation_text, plan_id, now),
+            )
+            if cursor.rowcount != 1:
+                await conn.rollback()
+                return ClaimResult(ClaimOutcome.PLAN_UNAVAILABLE)
+            if enforce_single_call_capacity:
+                placeholders, terminal_params = self._in_clause(
+                    state.value for state in TERMINAL_STATES
+                )
+                cursor = await conn.execute(
+                    f"SELECT state FROM calls WHERE state NOT IN ({placeholders}) LIMIT 1",  # noqa: S608
+                    terminal_params,
+                )
+                active = await cursor.fetchone()
+                if active is not None:
+                    await conn.rollback()
+                    if CallState(active["state"]) is CallState.TERMINATING:
+                        return ClaimResult(ClaimOutcome.CALL_ENDING)
+                    return ClaimResult(ClaimOutcome.BUSY)
+            await conn.execute(
+                """INSERT INTO calls
+                   (call_id, plan_id, state, conference_name, last_event_at, created_at, started_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    call_id,
+                    plan_id,
+                    CallState.PREWARMING.value,
+                    conference_name,
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            await conn.commit()
+            return ClaimResult(ClaimOutcome.CLAIMED)

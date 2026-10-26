@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phone Calls"
+  short_description: "Make calls and return recordings and transcripts"
+  default_prompt: "Use $phone-calls to make a phone call for me."

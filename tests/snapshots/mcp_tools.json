@@ -1,0 +1,627 @@
+{
+  "answer_call_question": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "answer": {
+          "type": "string"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "question_id": {
+          "type": "string"
+        },
+        "resolution": {
+          "enum": [
+            "found",
+            "not_found"
+          ],
+          "type": "string"
+        },
+        "sources_checked": {
+          "items": {
+            "enum": [
+              "agent_memory",
+              "conversation_history",
+              "email",
+              "calendar",
+              "drive",
+              "other"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "call_id",
+        "question_id",
+        "answer",
+        "resolution",
+        "sources_checked"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "type": "object"
+    }
+  },
+  "end_phone_call": {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "call_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "type": "object"
+    }
+  },
+  "get_call_result": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "after_sequence": {
+          "default": 0,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "call_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "type": "object"
+    }
+  },
+  "get_phone_call": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "call_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "plan_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "type": "object"
+    }
+  },
+  "prepare_phone_call": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "context": {
+          "additionalProperties": false,
+          "properties": {
+            "allowed_commitments": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "business": {
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "approved_claims": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "maxItems": 30,
+                      "type": "array"
+                    },
+                    "audience": {
+                      "anyOf": [
+                        {
+                          "maxLength": 1000,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    },
+                    "contact_permission": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "recipient_requested",
+                            "prior_consent"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    },
+                    "description": {
+                      "anyOf": [
+                        {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    },
+                    "desired_next_step": {
+                      "anyOf": [
+                        {
+                          "maxLength": 1000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    },
+                    "name": {
+                      "anyOf": [
+                        {
+                          "maxLength": 160,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    },
+                    "offer": {
+                      "anyOf": [
+                        {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    },
+                    "pricing": {
+                      "anyOf": [
+                        {
+                          "maxLength": 1000,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null
+                    }
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "completion_criteria": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional evidence that the task is done. Refusal or missing facts can still end the call."
+            },
+            "direction": {
+              "default": "outbound",
+              "enum": [
+                "outbound",
+                "inbound"
+              ],
+              "type": "string"
+            },
+            "escalation": {
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "transfer_to_owner",
+                    "end_call"
+                  ],
+                  "type": "string"
+                },
+                "owner_phone": {
+                  "anyOf": [
+                    {
+                      "pattern": "^\\+[1-9]\\d{1,14}$",
+                      "type": "string"
+                    },
+                    {
+                      "const": "configured",
+                      "type": "string"
+                    }
+                  ],
+                  "default": "configured",
+                  "description": "Omit to use the server's saved owner number, including when mode is end_call."
+                }
+              },
+              "required": [
+                "mode"
+              ],
+              "type": "object"
+            },
+            "hard_constraints": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "intention": {
+              "default": "task",
+              "deprecated": true,
+              "description": "Legacy compatibility only. Does not select a prompt. Legacy sales still requires business facts and contact permission.",
+              "enum": [
+                "task",
+                "conversation",
+                "sales",
+                "roleplay",
+                "prank"
+              ],
+              "type": "string"
+            },
+            "language": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "en",
+                    "es",
+                    "ru",
+                    "uk"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "max_duration_seconds": {
+              "anyOf": [
+                {
+                  "maximum": 7200,
+                  "minimum": 30,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "objective": {
+              "maxLength": 4000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "owner": {
+              "properties": {
+                "callback_number": {
+                  "anyOf": [
+                    {
+                      "pattern": "^\\+[1-9]\\d{1,14}$",
+                      "type": "string"
+                    },
+                    {
+                      "const": "configured",
+                      "type": "string"
+                    }
+                  ],
+                  "default": "configured",
+                  "description": "Omit to use the server's saved owner number. Never use the recipient number here."
+                },
+                "display_name": {
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "timezone": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "display_name",
+                "timezone"
+              ],
+              "type": "object"
+            },
+            "personality": {
+              "default": "warm",
+              "enum": [
+                "professional",
+                "warm",
+                "salesperson",
+                "playful"
+              ],
+              "type": "string"
+            },
+            "preferences": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "profile_id": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "prohibited_actions": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "relevant_facts": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "target": {
+              "properties": {
+                "background": {
+                  "anyOf": [
+                    {
+                      "maxLength": 4000,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Known role, company, relationship, and background. Context, not authority; do not invent missing details."
+                },
+                "name": {
+                  "maxLength": 160,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "organization": {
+                  "anyOf": [
+                    {
+                      "maxLength": 160,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "phone": {
+                  "anyOf": [
+                    {
+                      "pattern": "^\\+[1-9]\\d{1,14}$",
+                      "type": "string"
+                    },
+                    {
+                      "enum": [
+                        "withheld",
+                        "unavailable"
+                      ],
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "phone"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "owner",
+            "target",
+            "objective",
+            "escalation"
+          ],
+          "type": "object"
+        },
+        "followup_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "requested_by_owner": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "context"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "type": "object"
+    }
+  },
+  "start_phone_call": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "confirmation_text": {
+          "type": "string"
+        },
+        "explicit_confirmation": {
+          "type": "boolean"
+        },
+        "plan_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan_id",
+        "explicit_confirmation",
+        "confirmation_text"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "type": "object"
+    }
+  },
+  "wait_for_call_event": {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "after_sequence": {
+          "default": 0,
+          "type": "integer"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 20.0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "call_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "additionalProperties": true,
+      "type": "object"
+    }
+  }
+}

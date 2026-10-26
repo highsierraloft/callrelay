@@ -1,0 +1,710 @@
+@layer layout {
+  .app-shell {
+    --rail-width: 4rem;
+    --sidebar-width: 14.5rem;
+    display: grid;
+    grid-template-columns: var(--rail-width) minmax(0, 1fr);
+    height: 100dvh;
+    overflow: hidden;
+    transition: grid-template-columns 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .app-shell.sidebar-expanded {
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  }
+  .workspace {
+    container-type: inline-size;
+    container-name: workspace;
+  }
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--bg);
+    border-right: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .sidebar-heading {
+    height: 60px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+  }
+  .sidebar nav {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 4px 7px;
+  }
+  .sidebar-bottom {
+    flex-shrink: 0;
+    padding: 12px 8px;
+    border-top: 1px solid var(--line);
+  }
+  .app-toolbar {
+    min-height: 60px;
+    flex-shrink: 0;
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .app-toolbar h1 {
+    min-width: 0;
+    font-size: 1.4286rem;
+    letter-spacing: -0.02em;
+  }
+  .toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .contacts-layout {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: 16.857rem minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .contact-list {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    border-right: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .contact-search {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    margin: 0;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .contact-search .search-field {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+  }
+  .contact-list .search-field input {
+    min-height: 40px;
+    height: var(--control-height);
+    padding: 7px 8px;
+    font-size: 1rem;
+  }
+  .contact-rows {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 8px 12px;
+  }
+  .contact-detail {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .contact-heading {
+    flex-shrink: 0;
+    padding: 20px 24px 12px;
+  }
+  .contact-heading h2 {
+    font-size: 1.4286rem;
+    letter-spacing: -0.02em;
+  }
+  .contact-heading p {
+    margin: 6px 0 0;
+    font-size: 1rem;
+  }
+  .contact-detail > .detail-tabs {
+    flex-shrink: 0;
+    padding-inline: 12px;
+  }
+  .contact-detail > .settings-panel {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+  .contact-history,
+  .contact-form {
+    padding: 12px 24px 28px;
+    max-width: 880px;
+  }
+  .contact-form {
+    padding-top: 24px;
+  }
+  .empty-detail {
+    display: grid;
+    place-content: center;
+    min-height: 160px;
+    flex: 1;
+    padding: 32px;
+    color: var(--muted);
+    text-align: center;
+  }
+}
+@layer components {
+  .contact-search .search-field {
+    margin: 0;
+  }
+  .sidebar-title {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    font-size: 1rem;
+  }
+  .sidebar-toggle {
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+    flex-shrink: 0;
+    padding: 8px;
+    background: transparent;
+    border-color: transparent;
+  }
+  .sidebar-toggle:hover:not(:disabled) {
+    background: var(--selected);
+  }
+  .nav-group {
+    margin-bottom: 14px;
+  }
+  .nav-group h2 {
+    margin: 8px 10px 4px;
+    color: var(--muted);
+    font-size: 0.8571rem;
+    font-weight: 500;
+    line-height: 20px;
+    letter-spacing: 0;
+  }
+  .sidebar nav a {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    min-height: 40px;
+    padding: 9px 10px;
+    margin-block: 2px;
+    border-radius: 7px;
+    color: var(--muted);
+    text-decoration: none;
+    font-weight: 500;
+    transition:
+      color 120ms ease,
+      background-color 120ms ease;
+  }
+  .sidebar nav a svg {
+    flex-shrink: 0;
+  }
+  .sidebar nav a:hover {
+    background: var(--selected);
+    color: var(--text);
+  }
+  .sidebar nav a[aria-current="page"] {
+    background: var(--selected);
+    color: var(--accent);
+  }
+  .nav-label {
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .sidebar-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 10px;
+    min-height: 32px;
+    color: var(--muted);
+    font-size: 0.8571rem;
+  }
+  .sidebar-line svg {
+    flex-shrink: 0;
+  }
+  .sidebar-collapsed .sidebar-title,
+  .sidebar-collapsed .nav-label {
+    width: 0;
+    opacity: 0;
+  }
+  .sidebar-collapsed .sidebar nav a,
+  .sidebar-collapsed .sidebar-line {
+    gap: 0;
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .sidebar-collapsed .nav-group h2 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    margin: 0;
+  }
+  .sidebar-collapsed .nav-group + .nav-group {
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+  }
+  .sidebar-collapsed .nav-group {
+    margin-bottom: 10px;
+  }
+  .readiness {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.8571rem;
+  }
+  .readiness svg {
+    color: var(--accent);
+  }
+  .contact-rows li {
+    margin: 0;
+  }
+  .contact-rows a {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 3px;
+    min-height: 56px;
+    padding: 9px 12px;
+    margin-block: 2px;
+    border: 0;
+    border-radius: 7px;
+    text-align: left;
+    color: var(--text);
+    text-decoration: none;
+    overflow: hidden;
+    transition: background-color 120ms ease;
+  }
+  .contact-rows a:hover {
+    background: var(--bg);
+  }
+  .contact-rows a.selected {
+    background: var(--selected);
+  }
+  .contact-rows strong,
+  .contact-rows span {
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.35;
+  }
+  .contact-rows strong {
+    font-size: 1rem;
+    font-weight: 550;
+  }
+  .contact-rows span {
+    font-size: 0.9286rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .contact-list .icon-button {
+    min-height: 40px;
+    height: var(--control-height);
+    width: var(--control-height);
+    padding: 7px;
+    flex-shrink: 0;
+  }
+  .contact-history .timeline-call {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .contact-history .conversation-link {
+    position: relative;
+    display: block;
+    min-width: 0;
+    flex: 1;
+    padding: 8px 24px 8px 0;
+    color: var(--text);
+    text-decoration: none;
+    border-radius: 4px;
+  }
+  .conversation-link:hover .conversation-direction {
+    color: var(--accent);
+  }
+  .conversation-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 16px;
+    justify-content: space-between;
+  }
+  .conversation-direction {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 550;
+    font-size: 0.9286rem;
+  }
+  .contact-history time {
+    color: var(--muted);
+    font-size: 0.8571rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
+  }
+  .conversation-status {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.8571rem;
+    color: var(--muted);
+    text-transform: capitalize;
+  }
+  .conversation-status.issue {
+    color: var(--danger);
+  }
+  .contact-history .conversation-summary {
+    margin: 8px 0 0;
+    font-size: 1rem;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    white-space: pre-wrap;
+  }
+  .conversation-chevron {
+    position: absolute;
+    inset-inline-end: 2px;
+    top: 11px;
+    color: var(--muted);
+  }
+  .timeline-call .action-menu {
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .action-menu > summary.icon-only {
+    padding: 8px;
+    min-width: 36px;
+    min-height: 36px;
+    color: var(--muted);
+  }
+  .empty-state {
+    color: var(--muted);
+    padding: 28px 20px;
+    min-height: 120px;
+    display: grid;
+    place-content: center;
+    text-align: center;
+    font-size: 1rem;
+  }
+  .contact-form .empty-state {
+    padding: 20px 0;
+    min-height: 100px;
+  }
+  .contact-heading,
+  .contact-history,
+  .contact-form {
+    animation: pane-appear 140ms ease-out;
+  }
+  .workspace > .section-container:not([hidden]) {
+    animation: pane-appear 140ms ease-out;
+  }
+  @keyframes pane-appear {
+    from {
+      opacity: 0.45;
+      transform: translateY(3px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+@layer responsive {
+  @media (max-width: 560px) {
+    .app-shell.sidebar-expanded {
+      grid-template-columns: var(--rail-width) minmax(0, 1fr);
+    }
+    .sidebar-overlay {
+      position: fixed;
+      inset: 0 auto 0 0;
+      width: min(var(--sidebar-width), calc(100vw - 48px));
+      z-index: 70;
+      box-shadow: 12px 0 32px #0003;
+      animation: sidebar-reveal 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .sidebar-backdrop,
+    .sidebar-backdrop:hover:not(:disabled) {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      background: #0004;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      animation: pane-appear 140ms ease-out;
+    }
+    @keyframes sidebar-reveal {
+      from {
+        transform: translateX(-12px);
+        opacity: 0.8;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+  }
+  @media (pointer: coarse) {
+    .sidebar-toggle,
+    .sidebar nav a,
+    .contact-list .icon-button,
+    .action-menu > summary.icon-only {
+      min-height: 44px;
+    }
+    .sidebar-toggle {
+      width: 40px;
+    }
+    .contact-list .icon-button {
+      width: 44px;
+    }
+  }
+  @container workspace (max-width: 44rem) {
+    .contacts-layout,
+    .calls-layout {
+      display: block;
+      overflow: hidden;
+    }
+    .contact-list,
+    .call-list-pane {
+      height: 100%;
+      border-right: 0;
+    }
+    .contacts-layout.has-selection .contact-list,
+    .calls-layout.has-selection .call-list-pane {
+      display: none;
+    }
+    .contacts-layout:not(.has-selection) .contact-detail,
+    .call-welcome {
+      display: none;
+    }
+    .contact-detail,
+    .detail-pane {
+      height: 100%;
+    }
+    .mobile-back,
+    .back-button {
+      display: inline-flex;
+      margin: 12px 16px 0;
+      align-self: flex-start;
+      min-height: 36px;
+    }
+    .contact-heading {
+      padding: 16px 20px 12px;
+    }
+    .contact-history,
+    .contact-form {
+      padding-inline: 20px;
+    }
+    .detail-pane {
+      padding: 16px 20px 32px;
+    }
+    .detail-pane .back-button {
+      margin: 0 0 14px;
+    }
+    .app-toolbar {
+      padding: 10px 16px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .toolbar-actions {
+      margin-left: auto;
+      gap: 8px;
+    }
+    .readiness span {
+      display: none;
+    }
+    .editor-heading {
+      flex-wrap: wrap;
+    }
+  }
+  @container workspace (max-width: 28rem) {
+    .app-toolbar h1 {
+      font-size: 1.2857rem;
+    }
+    .new-call-button {
+      width: 40px;
+      min-height: 40px;
+      padding: 8px;
+    }
+    .new-call-button span {
+      display: none;
+    }
+    .readiness {
+      display: none;
+    }
+    .contact-heading,
+    .contact-history,
+    .contact-form {
+      padding-inline: 16px;
+    }
+    .contact-history .conversation-meta {
+      display: block;
+    }
+    .contact-history time {
+      display: block;
+      margin-top: 4px;
+    }
+    .contact-detail .detail-tabs {
+      padding-inline: 8px;
+    }
+    .contact-detail .detail-tabs button {
+      padding-inline: 8px;
+      font-size: 0.9286rem;
+    }
+    .editor-heading {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .editor-save {
+      display: flex;
+      align-self: flex-start;
+      flex-wrap: wrap;
+    }
+    .conversation-link {
+      min-height: 60px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-shell,
+    .sidebar nav a,
+    .contact-rows a {
+      transition: none;
+    }
+    .contact-heading,
+    .contact-history,
+    .contact-form,
+    .workspace > .section-container:not([hidden]),
+    .sidebar-overlay,
+    .sidebar-backdrop {
+      animation: none;
+    }
+  }
+}
+@layer responsive {
+  @media (pointer: coarse) {
+    .sidebar-heading {
+      padding: 6px;
+    }
+    .sidebar nav {
+      padding-inline: 6px;
+    }
+    .sidebar-toggle,
+    .new-call-button,
+    .action-menu > summary.icon-only {
+      min-width: 44px;
+      width: 44px;
+      min-height: 44px;
+    }
+    button,
+    .button {
+      min-height: 44px;
+    }
+    input,
+    select,
+    textarea,
+    .contact-list .search-field input {
+      font-size: max(1rem, 16px);
+      min-height: 44px;
+    }
+  }
+}
+@layer components {
+  .contact-rows {
+    list-style: none;
+    margin: 0;
+    padding: 0 8px 12px;
+  }
+  .contact-detail > .settings-panel {
+    padding: 0;
+  }
+  .contact-history .timeline-call:first-child {
+    padding-top: 4px;
+  }
+  .configuration-editor .editor-title h2 {
+    font-size: 1.4286rem;
+  }
+  .integration-heading {
+    justify-content: flex-end;
+    margin-bottom: 12px;
+  }
+  .editor-fields {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+}
+@layer responsive {
+  @container workspace (max-width: 44rem) {
+    .editor-layout {
+      display: block;
+      overflow: auto;
+    }
+    .profile-list {
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+      padding: 12px 20px;
+      overflow: visible;
+    }
+    .profile-row,
+    .profile-list .list-divider,
+    .profile-list .section-heading .list-label {
+      display: none;
+    }
+    .profile-picker {
+      display: flex;
+      flex: 1;
+      order: 1;
+      margin: 0;
+      min-width: 0;
+    }
+    .profile-list .section-heading {
+      order: 2;
+      margin: 0;
+    }
+    .profile-picker select,
+    .profile-list .section-heading .icon-button {
+      height: max(44px, var(--control-height));
+      min-height: max(44px, var(--control-height));
+    }
+    .configuration-editor {
+      padding: 20px;
+    }
+    .configuration-editor .editor-topbar {
+      position: static;
+    }
+  }
+  @container workspace (max-width: 54rem) {
+    .playground-layout {
+      display: block;
+      overflow: auto;
+      padding-bottom: calc(88px + env(safe-area-inset-bottom));
+    }
+    .practice-setup {
+      overflow: visible;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      padding: 20px;
+    }
+    .practice-conversation {
+      padding: 20px;
+      min-height: 350px;
+    }
+    .practice-turns {
+      overflow: visible;
+      min-height: 160px;
+    }
+  }
+}

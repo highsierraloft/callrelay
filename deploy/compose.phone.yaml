@@ -1,0 +1,123 @@
+name: callrelay
+
+x-runtime: &runtime
+  restart: unless-stopped
+  init: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  read_only: true
+
+x-build-args: &build-args
+  CALLRELAY_UID: ${CALLRELAY_UID:-1000}
+  CALLRELAY_GID: ${CALLRELAY_GID:-1000}
+
+services:
+  agent-call:
+    <<: *runtime
+    image: callrelay-worker:local
+    build:
+      context: ..
+      dockerfile: Dockerfile.android
+      args: *build-args
+    volumes:
+      - ../private/agent-call.json:/run/secrets/agent-call.json:ro
+      - ../private/control-access.json:/run/secrets/control-access.json:ro
+      - ../private/worker-asterisk.json:/run/secrets/asterisk.json:ro
+      - ../private/openrouter-api-key:/run/secrets/openrouter-api-key:ro
+      - ../private/soniox-api-key:/run/secrets/soniox-api-key:ro
+      - ../private/inworld-api-key:/run/secrets/inworld-api-key:ro
+      - ../private/status:/run/phone:ro
+      - ../private/data:/data
+    tmpfs:
+      - /tmp:size=67108864,uid=${CALLRELAY_UID:-1000},gid=${CALLRELAY_GID:-1000},mode=0700
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+  asterisk:
+    <<: *runtime
+    image: callrelay-asterisk:local
+    build:
+      context: ..
+      dockerfile: Dockerfile.asterisk
+      args: *build-args
+    ports:
+      - "${CALLRELAY_LAN_ADDRESS:?Set the server LAN address}:5060:5060/udp"
+      - "${CALLRELAY_LAN_ADDRESS:?Set the server LAN address}:12000-12019:12000-12019/udp"
+    volumes:
+      - ../private/asterisk.json:/run/secrets/asterisk.json:ro
+      - ../private/recordings:/var/spool/asterisk
+    tmpfs:
+      - /tmp:size=67108864,uid=${CALLRELAY_UID:-1000},gid=${CALLRELAY_GID:-1000},mode=0700
+    mem_limit: 384m
+    cpus: 0.75
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, asterisk, -C, /tmp/asterisk/config/asterisk.conf, -rx, core show uptime]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+  control:
+    <<: *runtime
+    image: callrelay-control:local
+    build:
+      context: ..
+      dockerfile: Dockerfile.control
+      args: *build-args
+    ports: ["127.0.0.1:9120:8080"]
+    volumes:
+      - ../private/control-access.json:/run/secrets/control-access.json:ro
+    tmpfs:
+      - /tmp:size=16777216,uid=${CALLRELAY_UID:-1000},gid=${CALLRELAY_GID:-1000},mode=0700
+      - /config:size=16777216,uid=${CALLRELAY_UID:-1000},gid=${CALLRELAY_GID:-1000},mode=0700
+      - /data:size=16777216,uid=${CALLRELAY_UID:-1000},gid=${CALLRELAY_GID:-1000},mode=0700
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, http://127.0.0.1:8080/healthz]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  phone-recovery:
+    <<: *runtime
+    image: callrelay-phone-recovery:local
+    build:
+      context: ../supervisor
+      args: *build-args
+    network_mode: none
+    group_add: ["${CALLRELAY_USB_GID:?Set the handset USB group ID}"]
+    device_cgroup_rules: ["c 189:* rw"]
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb:ro
+      - ../private/adb-state:/home/phone/.android
+      - ../private/device.json:/run/phone/device.json:ro
+      - ../private/status:/status
+    tmpfs:
+      - /tmp:size=16777216,mode=1777
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, python, /app/healthcheck.py]
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${CALLRELAY_SUBNET:-172.29.90.0/24}

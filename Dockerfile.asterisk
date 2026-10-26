@@ -1,0 +1,33 @@
+FROM python:3.13-slim-trixie@sha256:57b29a7c050c4e679e4bea572e14b3965cf4b5839de2da49d55e49ffc4024f39 AS build
+RUN apt-get update && apt-get install --no-install-recommends -y \
+    build-essential ca-certificates curl pkg-config libedit-dev libjansson-dev \
+    libsqlite3-dev libssl-dev libxml2-dev uuid-dev libcurl4-openssl-dev \
+    libncurses-dev libspeexdsp-dev libopus-dev libsrtp2-dev \
+    && rm -rf /var/lib/apt/lists/*
+ADD --checksum=sha256:3bd5ee040509a3d3cd9b1ba9520c18e6ec0a7e7981ca68c457dcd36ba3c54d94 \
+    https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-22.11.0.tar.gz /tmp/asterisk.tar.gz
+WORKDIR /build
+RUN tar -xzf /tmp/asterisk.tar.gz --strip-components=1 \
+    && ./configure --with-pjproject-bundled --disable-xmldoc --without-dahdi --without-pri \
+       --without-pgsql --without-mysqlclient --without-odbc --libdir=/usr/lib \
+    && make menuselect.makeopts \
+    && menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts \
+    && make -j2 \
+    && make install DESTDIR=/install
+
+FROM python:3.13-slim-trixie@sha256:57b29a7c050c4e679e4bea572e14b3965cf4b5839de2da49d55e49ffc4024f39
+ARG CALLRELAY_UID=1000
+ARG CALLRELAY_GID=1000
+RUN apt-get update && apt-get install --no-install-recommends -y \
+    ca-certificates libedit2 libjansson4 libsqlite3-0 libssl3t64 libxml2 libuuid1 \
+    libcurl4t64 libncursesw6 libspeexdsp1 libopus0 libsrtp2-1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && (getent group "$CALLRELAY_GID" || groupadd --gid "$CALLRELAY_GID" asterisk) \
+    && useradd --uid "$CALLRELAY_UID" --gid "$CALLRELAY_GID" --create-home --shell /usr/sbin/nologin asterisk
+COPY --from=build /install/usr/ /usr/
+COPY --from=build /install/var/lib/asterisk/ /var/lib/asterisk/
+COPY deploy/asterisk/entrypoint.py /opt/agent-call/asterisk-entrypoint.py
+COPY deploy/asterisk/sounds/reception /var/lib/asterisk/sounds/reception
+USER asterisk
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+CMD ["python", "/opt/agent-call/asterisk-entrypoint.py"]

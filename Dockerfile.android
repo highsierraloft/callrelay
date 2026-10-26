@@ -1,0 +1,16 @@
+FROM python:3.13-slim-trixie@sha256:57b29a7c050c4e679e4bea572e14b3965cf4b5839de2da49d55e49ffc4024f39
+ARG CALLRELAY_UID=1000
+ARG CALLRELAY_GID=1000
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+RUN apt-get update && apt-get install --no-install-recommends -y libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && (getent group "$CALLRELAY_GID" || groupadd --gid "$CALLRELAY_GID" agent) \
+    && useradd --uid "$CALLRELAY_UID" --gid "$CALLRELAY_GID" --create-home --shell /usr/sbin/nologin agent
+COPY requirements-android.txt ./
+RUN pip install --no-cache-dir --require-hashes -r requirements-android.txt
+RUN apt-get update && apt-get install --no-install-recommends -y ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+COPY app ./app
+USER agent
+CMD ["uvicorn", "app.android_main:build_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--ws-max-size", "262144"]
