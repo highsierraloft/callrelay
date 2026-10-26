@@ -1363,9 +1363,9 @@ protobuf==6.33.6 \
     # via
     #   onnxruntime
     #   pipecat-ai
-py-key-value-aio==0.4.5 \
-    --hash=sha256:ab862adbcb8c72547d1c57821f22cbbb71ab86509039c96f36e914e0336c8dd7 \
-    --hash=sha256:c6563a2c6abe5da5e20f4f9e875c2a9b425a2244a54fadbf46cf140a9eea45d7
+py-key-value-aio==0.4.6 \
+    --hash=sha256:267c03c3e24cb99d3097612f8a5cfd8e11785c6a2975e272db0e303ea1850bfd \
+    --hash=sha256:820b30c7959fc738ea3d00160cdb10cd258f51e38737b2add530defeea1ded77
     # via fastmcp-slim
 pycparser==3.0 ; implementation_name != 'PyPy' \
     --hash=sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29 \
