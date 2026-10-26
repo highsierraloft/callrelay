@@ -1256,9 +1256,9 @@ pipecat-asterisk==0.1.4 \
     --hash=sha256:5107b5492d24803aaad3f03a549f81735f98c9adadf778413897c24c25e646bd \
     --hash=sha256:dc8c96d98d1f0af6451980e9468a878ec7c3dd609220856ee9982578a806fc38
     # via callrelay
-platformdirs==4.10.0 \
-    --hash=sha256:31e761a6a0ca04faf7353ea759bdba55652be214725111e5aac52dfa29d4bef7 \
-    --hash=sha256:fb516cdb12eb0d857d0cd85a7c57cea4d060bee4578d6cf5a14dfdf8cbf8784a
+platformdirs==4.13.5 \
+    --hash=sha256:05831adf87d392760f4b5c3a0a95579ab5a10b18b9b9bd43680dcb47544788a0 \
+    --hash=sha256:53d3ec4280b815c1e0b02edad7f9ee8fda1ba9c0865dd9c2e6e63849ce82fc1e
     # via fastmcp-slim
 propcache==0.5.2 \
     --hash=sha256:01c4fc7480cd0598bb4b57022df55b9ca296da7fc5a8760bd8451a7e63a7d427 \
